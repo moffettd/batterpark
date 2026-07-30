@@ -31,7 +31,7 @@ jobs:
           python-version: '3.10'
 
       - name: Install dependencies
-        run: pip install requests
+        run: pip install requests pybaseball pandas
 
       - name: Fetch Stats and Build HTML
         run: python generate_stats.py
