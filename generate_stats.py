@@ -1,33 +1,68 @@
 import requests
 from datetime import datetime
 
-def get_player_park_stats(p_id, venue_id):
+def get_player_park_career_stats(p_id, venue_id):
     """
-    Queries MLB API for a player's career statistics at a specific ballpark venue.
+    Fetches a player's full career hitting history specifically at today's venue_id
+    by summing up their year-by-year venue splits.
     """
-    # Query using statSplits for specific venue code (v + venue_id)
-    url = f"https://statsapi.mlb.com/api/v1/people/{p_id}/stats?stats=statSplits&group=hitting&gameType=R&sitCodes=v{venue_id}"
+    # Force venue_id to int for strict checking
+    target_venue_id = int(venue_id)
+    
+    # Query MLB API for year-by-year stats with venue hydration
+    url = f"https://statsapi.mlb.com/api/v1/people/{p_id}/stats?stats=yearByYear&group=hitting&gameType=R&hydrate=venue"
     
     try:
         res = requests.get(url, timeout=5).json()
         stats_list = res.get('stats', [])
         
+        total_pa = 0
+        total_ab = 0
+        total_hits = 0
+        total_hr = 0
+        total_bb = 0
+        total_hbp = 0
+        total_sf = 0
+        total_tb = 0  # Total bases for slugging
+        found_at_park = False
+
         if stats_list:
             splits = stats_list[0].get('splits', [])
-            if splits:
-                s = splits[0].get('stat', {})
-                return {
-                    "pa": s.get('plateAppearances', 0),
-                    "avg": s.get('avg', '.000'),
-                    "hr": s.get('homeRuns', 0),
-                    "ops": s.get('ops', '.000'),
-                    "note": "Park Career Split"
-                }
+            for split in splits:
+                v_id = split.get('venue', {}).get('id')
+                if v_id == target_venue_id:
+                    s = split.get('stat', {})
+                    total_pa += s.get('plateAppearances', 0)
+                    total_ab += s.get('atBats', 0)
+                    total_hits += s.get('hits', 0)
+                    total_hr += s.get('homeRuns', 0)
+                    total_bb += s.get('baseOnBalls', 0)
+                    total_hbp += s.get('hitByPitch', 0)
+                    total_sf += s.get('sacFlies', 0)
+                    total_tb += s.get('totalBases', 0)
+                    found_at_park = True
+
+        if found_at_park and total_pa > 0:
+            # Calculate batting average
+            avg = f"{(total_hits / total_ab):.3f}".lstrip('0') if total_ab > 0 else ".000"
+            
+            # Calculate OBP and SLG for OPS
+            obp_denom = (total_ab + total_bb + total_hbp + total_sf)
+            obp = (total_hits + total_bb + total_hbp) / obp_denom if obp_denom > 0 else 0.0
+            slg = total_tb / total_ab if total_ab > 0 else 0.0
+            ops = f"{(obp + slg):.3f}".lstrip('0')
+
+            return {
+                "pa": total_pa,
+                "avg": avg,
+                "hr": total_hr,
+                "ops": ops,
+                "note": "Career at Park"
+            }
     except Exception as e:
         pass
 
-    # Secondary method: Query homeAndAway if the player is at home
-    # Fallback to season totals if they have never played a single PA at this venue
+    # Fallback to current season totals if no games have been played at this park yet
     season_url = f"https://statsapi.mlb.com/api/v1/people/{p_id}/stats?stats=statsSingleSeason&group=hitting&gameType=R"
     try:
         res = requests.get(season_url, timeout=5).json()
@@ -41,7 +76,7 @@ def get_player_park_stats(p_id, venue_id):
                     "avg": s.get('avg', '.000'),
                     "hr": s.get('homeRuns', 0),
                     "ops": s.get('ops', '.000'),
-                    "note": "Overall Season (0 PA at Park)"
+                    "note": "Season Total (0 PA at Park)"
                 }
     except Exception:
         pass
@@ -52,7 +87,7 @@ def fetch_mlb_data():
     today = datetime.now().strftime('%Y-%m-%d')
     print(f"Fetching MLB schedule for {today}...")
     
-    # 1. Fetch today's schedule
+    # Fetch today's schedule
     sched_url = f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={today}"
     try:
         sched_res = requests.get(sched_url, timeout=10).json()
@@ -61,9 +96,9 @@ def fetch_mlb_data():
         print(f"Error fetching schedule: {e}")
         dates = []
 
-    # Fallback if no games are scheduled today (offseason/off-day)
+    # Fallback if no games are scheduled today (off-day / off-season)
     if not dates or not dates[0].get('games'):
-        print(f"No games found for {today}. Using Yankee Stadium as test sample.")
+        print(f"No games found for {today}. Using test sample matchup.")
         games = [{
             "venue": {"id": 147, "name": "Yankee Stadium"},
             "teams": {
@@ -82,7 +117,7 @@ def fetch_mlb_data():
         away_team = game['teams']['away']['team']
         home_team = game['teams']['home']['team']
         
-        print(f"Processing Matchup: {away_team['name']} @ {home_team['name']} at {venue_name} (ID: {venue_id})")
+        print(f"Processing Matchup: {away_team['name']} @ {home_team['name']} at {venue_name} (Venue ID: {venue_id})")
         
         game_info = {
             "venue": venue_name,
@@ -103,12 +138,12 @@ def fetch_mlb_data():
             for player in roster:
                 pos = player.get('position', {}).get('abbreviation', '')
                 
-                # Exclude Pitchers
+                # Filter out pitchers
                 if pos not in ['P', 'SP', 'RP']:
                     p_id = player['person']['id']
                     p_name = player['person']['fullName']
                     
-                    stats = get_player_park_stats(p_id, venue_id)
+                    stats = get_player_park_career_stats(p_id, venue_id)
 
                     game_info["batters"].append({
                         "name": p_name,
@@ -159,7 +194,7 @@ def build_html(park_data, date_str):
                     <tr>
                         <th>Player</th>
                         <th>Team</th>
-                        <th>PA</th>
+                        <th>PA at Park</th>
                         <th>AVG</th>
                         <th>HR</th>
                         <th>OPS</th>
@@ -172,7 +207,7 @@ def build_html(park_data, date_str):
             html += "<tr><td colspan='7'>No active hitters found for this matchup.</td></tr>"
         else:
             for b in game['batters']:
-                is_park = b['note'] == 'Park Career Split'
+                is_park = b['note'] == 'Career at Park'
                 tag_class = 'tag-park' if is_park else 'tag-season'
                 html += f"""
                     <tr>
