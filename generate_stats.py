@@ -8,17 +8,18 @@ cache.enable()
 TEAM_ABBREVIATIONS = {
     108: "LAA", 109: "ARI", 110: "BAL", 111: "BOS", 112: "CHC", 113: "CIN", 114: "CLE",
     115: "COL", 116: "DET", 117: "HOU", 118: "KC",  119: "LAD", 120: "WSH", 121: "NYM",
-    133: "OAK", 134: "PIT", 135: "SD",  136: "SEA", 137: "SF",  138: "STL", 139: "TB",
+    133: "ATH", 134: "PIT", 135: "SD",  136: "SEA", 137: "SF",  138: "STL", 139: "TB",
     140: "TEX", 141: "TOR", 142: "MIN", 143: "PHI", 144: "ATL", 145: "CWS", 146: "MIA",
     147: "NYY", 158: "MIL"
 }
 
 def fetch_mlb_data():
     today = datetime.now().strftime('%Y-%m-%d')
-    start_dt = (datetime.now() - timedelta(days=60)).strftime('%Y-%m-%d')
+    # 3-year window (1095 days) ensures deep career ballpark sample sizes
+    start_dt = (datetime.now() - timedelta(days=1095)).strftime('%Y-%m-%d')
     end_dt = today
     
-    print(f"Fetching schedule for {today}...")
+    print(f"Fetching schedule for {today} (Statcast 3-Year Window: {start_dt} to {end_dt})...")
 
     sched_url = f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={today}"
     try:
@@ -28,12 +29,10 @@ def fetch_mlb_data():
         print(f"Error fetching schedule: {e}")
         dates = []
 
-    # Filter strictly for Regular Season games (gameType 'R')
     games = []
     if dates and dates[0].get('games'):
         games = [g for g in dates[0]['games'] if g.get('gameType') == 'R']
 
-    # Off-season / off-day fallback if no regular season games exist today
     if not games:
         print(f"No regular season games on {today}. Displaying sample game.")
         games = [{
@@ -50,7 +49,6 @@ def fetch_mlb_data():
         home_team = game['teams']['home']['team']
         away_team = game['teams']['away']['team']
         home_team_id = home_team['id']
-        away_team_id = away_team['id']
         
         home_code = TEAM_ABBREVIATIONS.get(home_team_id, "NYY")
         venue_name = game.get('venue', {}).get('name', 'Ballpark')
@@ -63,7 +61,6 @@ def fetch_mlb_data():
             "batters": []
         }
 
-        # Gather active hitters strictly for ONLY the two playing teams
         player_map = {}
         for team in [away_team, home_team]:
             roster_url = f"https://statsapi.mlb.com/api/v1/teams/{team['id']}/roster?rosterType=active"
@@ -79,7 +76,6 @@ def fetch_mlb_data():
             except Exception as e:
                 print(f"Could not fetch roster for {team['name']}: {e}")
 
-        # Fetch bulk Statcast data for this host stadium
         try:
             df = statcast(start_dt=start_dt, end_dt=end_dt)
             if df is not None and not df.empty:
@@ -90,9 +86,8 @@ def fetch_mlb_data():
             print(f"Statcast notice: {e}")
             df = pd.DataFrame()
 
-        # Build stats for batters on these two teams
         for p_id, p_info in player_map.items():
-            pa, avg, hr, ops, note = 0, ".000", 0, ".000", "0 PA at Park"
+            pa, avg, hr, ops, note = 0, ".000", 0, ".000", "0 PA at Park (3-Yr)"
             
             if not df.empty and 'batter' in df.columns:
                 p_df = df[df['batter'] == p_id]
@@ -122,7 +117,7 @@ def fetch_mlb_data():
                     obp = (hits + walks + hbp) / obp_denom if obp_denom > 0 else 0.0
                     slg = total_bases / ab if ab > 0 else 0.0
                     ops = f"{(obp + slg):.3f}".lstrip('0')
-                    note = "Statcast Park Split"
+                    note = "Statcast 3-Yr Park Split"
 
             game_info["batters"].append({
                 "name": p_info['name'],
@@ -160,7 +155,7 @@ def build_html(park_data, date_str):
     </head>
     <body>
         <h1>MLB Batter Stats by Ballpark</h1>
-        <div class="sub">Statcast-verified venue splits • Updated for {date_str}</div>
+        <div class="sub">Statcast-verified venue splits (3-Year Window) • Updated for {date_str}</div>
     """
 
     for game in park_data:
@@ -173,7 +168,7 @@ def build_html(park_data, date_str):
                     <tr>
                         <th>Player</th>
                         <th>Team</th>
-                        <th>PA at Park</th>
+                        <th>PA at Park (3-Yr)</th>
                         <th>AVG</th>
                         <th>HR</th>
                         <th>OPS</th>
