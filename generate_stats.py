@@ -22,7 +22,8 @@ def fetch_mlb_data():
     park_data = []
 
     for game in games:
-        venue_id = game.get('venue', {}).get('id')
+        # Force venue_id to string so comparison works
+        venue_id = str(game.get('venue', {}).get('id', ''))
         venue_name = game.get('venue', {}).get('name', 'Unknown Ballpark')
         away_team = game['teams']['away']['team']
         home_team = game['teams']['home']['team']
@@ -53,37 +54,52 @@ def fetch_mlb_data():
                     p_id = player['person']['id']
                     p_name = player['person']['fullName']
                     
-                    # Fetch Career Regular Season Splits by Venue
-                    stats_url = f"https://statsapi.mlb.com/api/v1/people/{p_id}/stats?stats=byVenue&group=hitting&gameType=R"
+                    # Fetch Career Venue Stats AND Season Stats (as fallback)
+                    stats_url = f"https://statsapi.mlb.com/api/v1/people/{p_id}/stats?stats=careerByVenue,statsSingleSeason&group=hitting&gameType=R"
                     
                     pa, avg, hr, ops = "-", "-", "-", "-"
+                    note = ""
                     found_split = False
                     
                     try:
                         stats_res = requests.get(stats_url, timeout=5).json()
-                        stats_list = stats_res.get('stats', [])
+                        stats_group = stats_res.get('stats', [])
                         
-                        if stats_list:
-                            splits = stats_list[0].get('splits', [])
-                            # Find the split matching today's venue_id
-                            for split in splits:
-                                if split.get('venue', {}).get('id') == venue_id:
-                                    s = split.get('stat', {})
-                                    pa = s.get('plateAppearances', 0)
-                                    avg = s.get('avg', '.000')
-                                    hr = s.get('homeRuns', 0)
-                                    ops = s.get('ops', '.000')
-                                    found_split = True
-                                    break
+                        # 1. Search for Career Venue Match
+                        for stat_type in stats_group:
+                            if stat_type.get('type', {}).get('displayName') == 'careerByVenue':
+                                for split in stat_type.get('splits', []):
+                                    # Compare strings to prevent type mismatch
+                                    if str(split.get('venue', {}).get('id')) == venue_id:
+                                        s = split.get('stat', {})
+                                        pa = s.get('plateAppearances', 0)
+                                        avg = s.get('avg', '.000')
+                                        hr = s.get('homeRuns', 0)
+                                        ops = s.get('ops', '.000')
+                                        note = "Career at Park"
+                                        found_split = True
+                                        break
+                        
+                        # 2. Fallback to Season Total if no games played at this stadium
+                        if not found_split:
+                            for stat_type in stats_group:
+                                if stat_type.get('type', {}).get('displayName') == 'statsSingleSeason':
+                                    splits = stat_type.get('splits', [])
+                                    if splits:
+                                        s = splits[0].get('stat', {})
+                                        pa = s.get('plateAppearances', 0)
+                                        avg = s.get('avg', '.000')
+                                        hr = s.get('homeRuns', 0)
+                                        ops = s.get('ops', '.000')
+                                        note = "Season Total (No Park History)"
+                                        found_split = True
+                                        break
+
                     except Exception as e:
                         print(f"Skipped stats fetch for {p_name}: {e}")
 
-                    # If player has no career history at this park, explicitly mark it
                     if not found_split:
-                        pa = "0"
-                        avg = "N/A"
-                        hr = "0"
-                        ops = "N/A"
+                        pa, avg, hr, ops, note = "0", ".000", "0", ".000", "No Data"
 
                     game_info["batters"].append({
                         "name": p_name,
@@ -91,7 +107,8 @@ def fetch_mlb_data():
                         "pa": pa,
                         "avg": avg,
                         "hr": hr,
-                        "ops": ops
+                        "ops": ops,
+                        "note": note
                     })
                         
         park_data.append(game_info)
@@ -111,15 +128,15 @@ def build_html(park_data, date_str):
             h1 {{ margin-bottom: 0.5rem; }}
             .sub {{ color: #666; margin-bottom: 2rem; }}
             table {{ width: 100%; border-collapse: collapse; margin-top: 1rem; }}
-            th, td {{ padding: 8px 12px; text-align: left; border-bottom: 1px solid #ddd; }}
+            th, td {{ padding: 10px 12px; text-align: left; border-bottom: 1px solid #ddd; }}
             th {{ background-color: #003366; color: white; }}
-            tr:hover {{ background-color: #f1f1f1; }}
-            .no-data {{ color: #888; font-style: italic; }}
+            tr:hover {{ background-color: #f8f9fa; }}
+            .tag {{ font-size: 0.85em; color: #666; background: #e9ecef; padding: 2px 6px; border-radius: 4px; }}
         </style>
     </head>
     <body>
         <h1>MLB Batter Stats by Ballpark</h1>
-        <div class="sub">Career stats at today's ballpark • Updated for {date_str}</div>
+        <div class="sub">Career stats at today's stadium (or season totals for first-time visitors) • Updated for {date_str}</div>
     """
 
     if not park_data:
@@ -135,28 +152,28 @@ def build_html(park_data, date_str):
                     <tr>
                         <th>Player</th>
                         <th>Team</th>
-                        <th>Career PA at Park</th>
+                        <th>PA</th>
                         <th>AVG</th>
                         <th>HR</th>
                         <th>OPS</th>
+                        <th>Sample Context</th>
                     </tr>
                 </thead>
                 <tbody>
         """
         if not game['batters']:
-            html += "<tr><td colspan='6'>No active hitters found for this matchup.</td></tr>"
+            html += "<tr><td colspan='7'>No active hitters found for this matchup.</td></tr>"
         else:
             for b in game['batters']:
-                is_na = b['avg'] == 'N/A'
-                row_class = 'class="no-data"' if is_na else ''
                 html += f"""
-                    <tr {row_class}>
+                    <tr>
                         <td><strong>{b['name']}</strong></td>
                         <td>{b['team']}</td>
                         <td>{b['pa']}</td>
                         <td>{b['avg']}</td>
                         <td>{b['hr']}</td>
                         <td>{b['ops']}</td>
+                        <td><span class="tag">{b['note']}</span></td>
                     </tr>
                 """
         html += "</tbody></table></div>"
