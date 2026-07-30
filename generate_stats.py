@@ -48,15 +48,16 @@ def fetch_mlb_data():
             for player in roster:
                 pos = player.get('position', {}).get('abbreviation', '')
                 
-                # Filter out Pitchers
+                # Exclude Pitchers
                 if pos not in ['P', 'SP', 'RP']:
                     p_id = player['person']['id']
                     p_name = player['person']['fullName']
                     
-                    # Fetch all venue splits for this batter
-                    stats_url = f"https://statsapi.mlb.com/api/v1/people/{p_id}/stats?stats=byVenue&group=hitting"
+                    # Fetch Career Regular Season Splits by Venue
+                    stats_url = f"https://statsapi.mlb.com/api/v1/people/{p_id}/stats?stats=byVenue&group=hitting&gameType=R"
                     
-                    pa, avg, hr, ops = 0, ".000", 0, ".000"
+                    pa, avg, hr, ops = "-", "-", "-", "-"
+                    found_split = False
                     
                     try:
                         stats_res = requests.get(stats_url, timeout=5).json()
@@ -72,9 +73,17 @@ def fetch_mlb_data():
                                     avg = s.get('avg', '.000')
                                     hr = s.get('homeRuns', 0)
                                     ops = s.get('ops', '.000')
+                                    found_split = True
                                     break
                     except Exception as e:
                         print(f"Skipped stats fetch for {p_name}: {e}")
+
+                    # If player has no career history at this park, explicitly mark it
+                    if not found_split:
+                        pa = "0"
+                        avg = "N/A"
+                        hr = "0"
+                        ops = "N/A"
 
                     game_info["batters"].append({
                         "name": p_name,
@@ -105,11 +114,12 @@ def build_html(park_data, date_str):
             th, td {{ padding: 8px 12px; text-align: left; border-bottom: 1px solid #ddd; }}
             th {{ background-color: #003366; color: white; }}
             tr:hover {{ background-color: #f1f1f1; }}
+            .no-data {{ color: #888; font-style: italic; }}
         </style>
     </head>
     <body>
         <h1>MLB Batter Stats by Ballpark</h1>
-        <div class="sub">Updated for {date_str}</div>
+        <div class="sub">Career stats at today's ballpark • Updated for {date_str}</div>
     """
 
     if not park_data:
@@ -137,8 +147,10 @@ def build_html(park_data, date_str):
             html += "<tr><td colspan='6'>No active hitters found for this matchup.</td></tr>"
         else:
             for b in game['batters']:
+                is_na = b['avg'] == 'N/A'
+                row_class = 'class="no-data"' if is_na else ''
                 html += f"""
-                    <tr>
+                    <tr {row_class}>
                         <td><strong>{b['name']}</strong></td>
                         <td>{b['team']}</td>
                         <td>{b['pa']}</td>
