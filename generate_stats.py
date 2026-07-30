@@ -142,21 +142,28 @@ def build_html(park_data, date_str):
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>MLB Batter Ballpark Stats - {date_str}</title>
         <style>
-            body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 2rem; background: #f4f6f8; color: #333; }}
-            h1 {{ margin-bottom: 0.5rem; }}
-            .sub {{ color: #666; margin-bottom: 2rem; }}
+            * {{ box-sizing: border-box; }}
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                margin: 0;
+                padding: 1rem;
+                background: #f4f6f8;
+                color: #333;
+            }}
+            h1 {{ margin-top: 0; margin-bottom: 0.25rem; font-size: 1.6rem; }}
+            .sub {{ color: #666; margin-bottom: 1.5rem; font-size: 0.9rem; }}
             
             /* Collapsible Card Styling */
             details.card {{
                 background: white;
                 border-radius: 8px;
                 box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                margin-bottom: 1.5rem;
+                margin-bottom: 1.25rem;
                 overflow: hidden;
             }}
             
             summary {{
-                padding: 1.25rem 1.5rem;
+                padding: 1rem 1.25rem;
                 background: #ffffff;
                 cursor: pointer;
                 user-select: none;
@@ -166,46 +173,76 @@ def build_html(park_data, date_str):
                 border-bottom: 1px solid #eee;
                 transition: background 0.2s ease;
             }}
-            summary:hover {{
-                background: #f8f9fa;
-            }}
-            summary h2 {{ margin: 0; font-size: 1.25rem; color: #003366; }}
-            summary h3 {{ margin: 0; font-size: 1rem; color: #555; font-weight: normal; }}
+            summary:hover {{ background: #f8f9fa; }}
+            summary h2 {{ margin: 0; font-size: 1.15rem; color: #003366; }}
+            summary h3 {{ margin: 0; font-size: 0.95rem; color: #555; font-weight: normal; }}
             summary .toggle-icon {{
-                font-size: 0.9rem;
+                font-size: 0.8rem;
                 color: #888;
                 font-weight: bold;
+                margin-left: 0.5rem;
+                white-space: nowrap;
             }}
 
-            /* Table & Sticky Header Styling */
+            /* Scrollable Outer Table Container */
             .table-container {{
-                max-height: 500px;
-                overflow-y: auto;
-                padding: 0 1.5rem 1.5rem 1.5rem;
+                max-height: 480px;
+                overflow: auto;
+                -webkit-overflow-scrolling: touch;
             }}
+
             table {{
                 width: 100%;
-                border-collapse: collapse;
-                margin-top: 1rem;
+                border-collapse: separate;
+                border-spacing: 0;
+                min-width: 600px; /* Forces smooth horizontal scroll on small phones */
             }}
+
             th, td {{
                 padding: 10px 12px;
                 text-align: left;
-                border-bottom: 1px solid #ddd;
+                border-bottom: 1px solid #eee;
+                white-space: nowrap;
+                background: #fff;
             }}
+
+            /* Sticky Header Row */
             th {{
                 background-color: #003366;
                 color: white;
                 position: sticky;
                 top: 0;
                 z-index: 10;
-                box-shadow: 0 1px 0 #003366;
             }}
-            tr:hover {{ background-color: #f8f9fa; }}
+
+            /* Sticky First Column (Player Name) */
+            td.sticky-col, th.sticky-col {{
+                position: sticky;
+                left: 0;
+                z-index: 5;
+                box-shadow: 2px 0 5px rgba(0,0,0,0.05);
+            }}
+
+            /* Intersection of Sticky Header and Sticky Column */
+            th.sticky-col {{
+                z-index: 15;
+            }}
+
+            tr:hover td {{ background-color: #f8f9fa; }}
             
             /* Stat Badges */
-            .tag-park {{ font-size: 0.85em; color: #155724; background: #d4edda; padding: 3px 8px; border-radius: 4px; font-weight: 600; }}
-            .tag-zero {{ font-size: 0.85em; color: #721c24; background: #f8d7da; padding: 3px 8px; border-radius: 4px; }}
+            .tag-park {{ font-size: 0.8em; color: #155724; background: #d4edda; padding: 3px 6px; border-radius: 4px; font-weight: 600; }}
+            .tag-zero {{ font-size: 0.8em; color: #721c24; background: #f8d7da; padding: 3px 6px; border-radius: 4px; }}
+
+            /* Mobile Specific Optimization */
+            @media (max-width: 600px) {{
+                body {{ padding: 0.75rem; }}
+                h1 {{ font-size: 1.3rem; }}
+                summary {{ padding: 0.85rem 1rem; }}
+                summary h2 {{ font-size: 1rem; }}
+                summary h3 {{ font-size: 0.85rem; }}
+                th, td {{ padding: 8px 10px; font-size: 0.85rem; }}
+            }}
         </style>
     </head>
     <body>
@@ -221,15 +258,15 @@ def build_html(park_data, date_str):
                     <h2>{game['venue']}</h2>
                     <h3>{game['matchup']}</h3>
                 </div>
-                <span class="toggle-icon">▼ Toggle Game</span>
+                <span class="toggle-icon">▼ Toggle</span>
             </summary>
             <div class="table-container">
                 <table>
                     <thead>
                         <tr>
-                            <th>Player</th>
+                            <th class="sticky-col">Player</th>
                             <th>Team</th>
-                            <th>PA at Park (3-Yr)</th>
+                            <th>PA at Park</th>
                             <th>AVG</th>
                             <th>HR</th>
                             <th>OPS</th>
@@ -246,7 +283,7 @@ def build_html(park_data, date_str):
                 tag_class = 'tag-zero' if is_zero else 'tag-park'
                 html += f"""
                     <tr>
-                        <td><strong>{b['name']}</strong></td>
+                        <td class="sticky-col"><strong>{b['name']}</strong></td>
                         <td>{b['team']}</td>
                         <td>{b['pa']}</td>
                         <td>{b['avg']}</td>
@@ -261,7 +298,7 @@ def build_html(park_data, date_str):
     
     with open("index.html", "w") as f:
         f.write(html)
-    print("\nSuccessfully updated index.html with sticky headers and collapsible cards!")
+    print("\nSuccessfully updated index.html with mobile sticky columns and touch scroll!")
 
 if __name__ == "__main__":
     data, date_str = fetch_mlb_data()
