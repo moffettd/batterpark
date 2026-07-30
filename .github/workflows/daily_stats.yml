@@ -2,9 +2,9 @@ name: Update Daily MLB Stats
 
 on:
   schedule:
-    # Runs automatically at 10:00 AM UTC (6:00 AM EST) every day
+    # Runs at 10:00 AM UTC (6:00 AM EST) every day
     - cron: '0 10 * * *'
-  workflow_dispatch: # Allows manual run button in GitHub
+  workflow_dispatch: # Manual trigger button
 
 permissions:
   contents: read
@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: "pages"
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build-and-deploy:
@@ -38,6 +38,13 @@ jobs:
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
+
+      # Removes previous duplicate deployment artifacts in case of re-runs
+      - name: Delete existing github-pages artifact
+        run: |
+          gh api -X DELETE /repos/${{ github.repository }}/actions/artifacts?name=github-pages || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Artifact
         uses: actions/upload-pages-artifact@v3
