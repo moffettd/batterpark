@@ -1,30 +1,33 @@
 import requests
 from datetime import datetime
 
-def get_player_stats(p_id, venue_id):
-    """Fetches player stats at a venue, falling back to season totals if unavailable."""
-    # 1. Try fetching career stats split by venue
-    venue_url = f"https://statsapi.mlb.com/api/v1/people/{p_id}/stats?stats=statSplits&group=hitting&gameType=R&sitCodes=v{venue_id}"
-    
-    pa, avg, hr, ops, note = 0, ".000", 0, ".000", "No Data"
+def get_player_park_stats(p_id, venue_id):
+    """
+    Queries MLB API for a player's career statistics at a specific ballpark venue.
+    """
+    # Query using statSplits for specific venue code (v + venue_id)
+    url = f"https://statsapi.mlb.com/api/v1/people/{p_id}/stats?stats=statSplits&group=hitting&gameType=R&sitCodes=v{venue_id}"
     
     try:
-        res = requests.get(venue_url, timeout=5).json()
+        res = requests.get(url, timeout=5).json()
         stats_list = res.get('stats', [])
+        
         if stats_list:
             splits = stats_list[0].get('splits', [])
             if splits:
                 s = splits[0].get('stat', {})
-                pa = s.get('plateAppearances', 0)
-                avg = s.get('avg', '.000')
-                hr = s.get('homeRuns', 0)
-                ops = s.get('ops', '.000')
-                note = "Career at Park"
-                return pa, avg, hr, ops, note
-    except Exception:
+                return {
+                    "pa": s.get('plateAppearances', 0),
+                    "avg": s.get('avg', '.000'),
+                    "hr": s.get('homeRuns', 0),
+                    "ops": s.get('ops', '.000'),
+                    "note": "Park Career Split"
+                }
+    except Exception as e:
         pass
 
-    # 2. Fallback: Fetch current Season Totals if no venue stats exist yet
+    # Secondary method: Query homeAndAway if the player is at home
+    # Fallback to season totals if they have never played a single PA at this venue
     season_url = f"https://statsapi.mlb.com/api/v1/people/{p_id}/stats?stats=statsSingleSeason&group=hitting&gameType=R"
     try:
         res = requests.get(season_url, timeout=5).json()
@@ -33,16 +36,17 @@ def get_player_stats(p_id, venue_id):
             splits = stats_list[0].get('splits', [])
             if splits:
                 s = splits[0].get('stat', {})
-                pa = s.get('plateAppearances', 0)
-                avg = s.get('avg', '.000')
-                hr = s.get('homeRuns', 0)
-                ops = s.get('ops', '.000')
-                note = "Season Total"
-                return pa, avg, hr, ops, note
+                return {
+                    "pa": s.get('plateAppearances', 0),
+                    "avg": s.get('avg', '.000'),
+                    "hr": s.get('homeRuns', 0),
+                    "ops": s.get('ops', '.000'),
+                    "note": "Overall Season (0 PA at Park)"
+                }
     except Exception:
         pass
 
-    return pa, avg, hr, ops, note
+    return {"pa": 0, "avg": ".000", "hr": 0, "ops": ".000", "note": "No Data"}
 
 def fetch_mlb_data():
     today = datetime.now().strftime('%Y-%m-%d')
@@ -57,9 +61,9 @@ def fetch_mlb_data():
         print(f"Error fetching schedule: {e}")
         dates = []
 
-    # Fallback to Yankee Stadium matchup if no games are scheduled today (offseason/off-day)
+    # Fallback if no games are scheduled today (offseason/off-day)
     if not dates or not dates[0].get('games'):
-        print(f"No active games found for {today}. Using sample matchup (Yankees @ Red Sox) to build page.")
+        print(f"No games found for {today}. Using Yankee Stadium as test sample.")
         games = [{
             "venue": {"id": 147, "name": "Yankee Stadium"},
             "teams": {
@@ -78,7 +82,7 @@ def fetch_mlb_data():
         away_team = game['teams']['away']['team']
         home_team = game['teams']['home']['team']
         
-        print(f"Processing Matchup: {away_team['name']} @ {home_team['name']} at {venue_name} (Venue ID: {venue_id})")
+        print(f"Processing Matchup: {away_team['name']} @ {home_team['name']} at {venue_name} (ID: {venue_id})")
         
         game_info = {
             "venue": venue_name,
@@ -104,16 +108,16 @@ def fetch_mlb_data():
                     p_id = player['person']['id']
                     p_name = player['person']['fullName']
                     
-                    pa, avg, hr, ops, note = get_player_stats(p_id, venue_id)
+                    stats = get_player_park_stats(p_id, venue_id)
 
                     game_info["batters"].append({
                         "name": p_name,
                         "team": team['name'],
-                        "pa": pa,
-                        "avg": avg,
-                        "hr": hr,
-                        "ops": ops,
-                        "note": note
+                        "pa": stats['pa'],
+                        "avg": stats['avg'],
+                        "hr": stats['hr'],
+                        "ops": stats['ops'],
+                        "note": stats['note']
                     })
                         
         park_data.append(game_info)
@@ -136,12 +140,13 @@ def build_html(park_data, date_str):
             th, td {{ padding: 10px 12px; text-align: left; border-bottom: 1px solid #ddd; }}
             th {{ background-color: #003366; color: white; }}
             tr:hover {{ background-color: #f8f9fa; }}
-            .tag {{ font-size: 0.85em; color: #333; background: #e2e8f0; padding: 3px 8px; border-radius: 4px; font-weight: 500; }}
+            .tag-park {{ font-size: 0.85em; color: #155724; background: #d4edda; padding: 3px 8px; border-radius: 4px; font-weight: 600; }}
+            .tag-season {{ font-size: 0.85em; color: #856404; background: #fff3cd; padding: 3px 8px; border-radius: 4px; }}
         </style>
     </head>
     <body>
         <h1>MLB Batter Stats by Ballpark</h1>
-        <div class="sub">Ballpark splits and season metrics • Updated for {date_str}</div>
+        <div class="sub">Career stats at today's stadium • Updated for {date_str}</div>
     """
 
     for game in park_data:
@@ -158,7 +163,7 @@ def build_html(park_data, date_str):
                         <th>AVG</th>
                         <th>HR</th>
                         <th>OPS</th>
-                        <th>Data Context</th>
+                        <th>Stat Source</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -167,6 +172,8 @@ def build_html(park_data, date_str):
             html += "<tr><td colspan='7'>No active hitters found for this matchup.</td></tr>"
         else:
             for b in game['batters']:
+                is_park = b['note'] == 'Park Career Split'
+                tag_class = 'tag-park' if is_park else 'tag-season'
                 html += f"""
                     <tr>
                         <td><strong>{b['name']}</strong></td>
@@ -175,7 +182,7 @@ def build_html(park_data, date_str):
                         <td>{b['avg']}</td>
                         <td>{b['hr']}</td>
                         <td>{b['ops']}</td>
-                        <td><span class="tag">{b['note']}</span></td>
+                        <td><span class="{tag_class}">{b['note']}</span></td>
                     </tr>
                 """
         html += "</tbody></table></div>"
