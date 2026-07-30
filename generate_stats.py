@@ -153,13 +153,11 @@ def build_html(park_data, date_str):
             h1 {{ margin-top: 0; margin-bottom: 0.25rem; font-size: 1.6rem; }}
             .sub {{ color: #666; margin-bottom: 1.5rem; font-size: 0.9rem; }}
             
-            /* Collapsible Card Styling */
             details.card {{
                 background: white;
                 border-radius: 8px;
                 box-shadow: 0 2px 4px rgba(0,0,0,0.1);
                 margin-bottom: 1.25rem;
-                overflow: hidden;
             }}
             
             summary {{
@@ -171,9 +169,8 @@ def build_html(park_data, date_str):
                 justify-content: space-between;
                 align-items: center;
                 border-bottom: 1px solid #eee;
-                transition: background 0.2s ease;
+                border-radius: 8px;
             }}
-            summary:hover {{ background: #f8f9fa; }}
             summary h2 {{ margin: 0; font-size: 1.15rem; color: #003366; }}
             summary h3 {{ margin: 0; font-size: 0.95rem; color: #555; font-weight: normal; }}
             summary .toggle-icon {{
@@ -181,21 +178,19 @@ def build_html(park_data, date_str):
                 color: #888;
                 font-weight: bold;
                 margin-left: 0.5rem;
-                white-space: nowrap;
             }}
 
-            /* Scrollable Outer Table Container */
+            /* Clean Horizontal Scroll for Mobile */
             .table-container {{
-                max-height: 480px;
-                overflow: auto;
+                width: 100%;
+                overflow-x: auto;
                 -webkit-overflow-scrolling: touch;
             }}
 
             table {{
                 width: 100%;
-                border-collapse: separate;
-                border-spacing: 0;
-                min-width: 600px; /* Forces smooth horizontal scroll on small phones */
+                border-collapse: collapse;
+                min-width: 600px;
             }}
 
             th, td {{
@@ -206,16 +201,7 @@ def build_html(park_data, date_str):
                 background: #fff;
             }}
 
-            /* Sticky Header Row */
-            th {{
-                background-color: #003366;
-                color: white;
-                position: sticky;
-                top: 0;
-                z-index: 10;
-            }}
-
-            /* Sticky First Column (Player Name) */
+            /* Sticky Column for Player Name on Horizontal Swipe */
             td.sticky-col, th.sticky-col {{
                 position: sticky;
                 left: 0;
@@ -223,20 +209,18 @@ def build_html(park_data, date_str):
                 box-shadow: 2px 0 5px rgba(0,0,0,0.05);
             }}
 
-            /* Intersection of Sticky Header and Sticky Column */
-            th.sticky-col {{
-                z-index: 15;
+            th {{
+                background-color: #003366;
+                color: white;
             }}
 
             tr:hover td {{ background-color: #f8f9fa; }}
             
-            /* Stat Badges */
             .tag-park {{ font-size: 0.8em; color: #155724; background: #d4edda; padding: 3px 6px; border-radius: 4px; font-weight: 600; }}
             .tag-zero {{ font-size: 0.8em; color: #721c24; background: #f8d7da; padding: 3px 6px; border-radius: 4px; }}
 
-            /* Mobile Specific Optimization */
             @media (max-width: 600px) {{
-                body {{ padding: 0.75rem; }}
+                body {{ padding: 0.55rem; }}
                 h1 {{ font-size: 1.3rem; }}
                 summary {{ padding: 0.85rem 1rem; }}
                 summary h2 {{ font-size: 1rem; }}
@@ -298,7 +282,7 @@ def build_html(park_data, date_str):
     
     with open("index.html", "w") as f:
         f.write(html)
-    print("\nSuccessfully updated index.html with mobile sticky columns and touch scroll!")
+    print("\nSuccessfully updated index.html!")
 
 if __name__ == "__main__":
     data, date_str = fetch_mlb_data()
