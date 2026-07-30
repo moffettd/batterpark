@@ -3,24 +3,31 @@ from datetime import datetime
 
 def fetch_mlb_data():
     today = datetime.now().strftime('%Y-%m-%d')
+    print(f"Fetching MLB schedule for {today}...")
     
     # 1. Fetch today's schedule
     sched_url = f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={today}"
-    sched_res = requests.get(sched_url).json()
+    try:
+        sched_res = requests.get(sched_url, timeout=10).json()
+    except Exception as e:
+        print(f"Error fetching schedule: {e}")
+        return [], today
     
     dates = sched_res.get('dates', [])
     if not dates or not dates[0].get('games'):
-        print("No games scheduled for today.")
+        print(f"No MLB games scheduled for {today}.")
         return [], today
 
     games = dates[0]['games']
     park_data = []
 
     for game in games:
-        venue_id = game['venue']['id']
-        venue_name = game['venue']['name']
+        venue_id = game.get('venue', {}).get('id')
+        venue_name = game.get('venue', {}).get('name', 'Unknown Ballpark')
         away_team = game['teams']['away']['team']
         home_team = game['teams']['home']['team']
+        
+        print(f"\nProcessing Game: {away_team['name']} @ {home_team['name']} at {venue_name} (ID: {venue_id})")
         
         game_info = {
             "venue": venue_name,
@@ -30,43 +37,53 @@ def fetch_mlb_data():
 
         # Fetch active rosters for both teams
         for team in [away_team, home_team]:
-            roster_url = f"https://statsapi.mlb.com/api/v1/teams/{team['id']}/roster"
-            roster_res = requests.get(roster_url).json()
-            
-            for player in roster_res.get('roster', []):
+            roster_url = f"https://statsapi.mlb.com/api/v1/teams/{team['id']}/roster?rosterType=active"
+            try:
+                roster_res = requests.get(roster_url, timeout=10).json()
+                roster = roster_res.get('roster', [])
+            except Exception as e:
+                print(f"Could not fetch roster for {team['name']}: {e}")
+                roster = []
+
+            for player in roster:
                 pos = player.get('position', {}).get('abbreviation', '')
                 
-                # Exclude Pitchers ('P')
-                if pos != 'P':
+                # Filter out Pitchers
+                if pos not in ['P', 'SP', 'RP']:
                     p_id = player['person']['id']
                     p_name = player['person']['fullName']
                     
-                    # Correct Venue Query using 'venueId' parameter
-                    stats_url = f"https://statsapi.mlb.com/api/v1/people/{p_id}/stats?stats=statSplits&group=hitting&gameType=R&venueId={venue_id}"
-                    stats_res = requests.get(stats_url).json()
+                    # Fetch all venue splits for this batter
+                    stats_url = f"https://statsapi.mlb.com/api/v1/people/{p_id}/stats?stats=byVenue&group=hitting"
                     
-                    splits = stats_res.get('stats', [{}])[0].get('splits', [])
+                    pa, avg, hr, ops = 0, ".000", 0, ".000"
                     
-                    if splits:
-                        s = splits[0].get('stat', {})
-                        game_info["batters"].append({
-                            "name": p_name,
-                            "team": team['name'],
-                            "pa": s.get('plateAppearances', 0),
-                            "avg": s.get('avg', '.000'),
-                            "hr": s.get('homeRuns', 0),
-                            "ops": s.get('ops', '.000')
-                        })
-                    else:
-                        # Fallback if player has no career stats at this ballpark yet
-                        game_info["batters"].append({
-                            "name": p_name,
-                            "team": team['name'],
-                            "pa": 0,
-                            "avg": ".000",
-                            "hr": 0,
-                            "ops": ".000"
-                        })
+                    try:
+                        stats_res = requests.get(stats_url, timeout=5).json()
+                        stats_list = stats_res.get('stats', [])
+                        
+                        if stats_list:
+                            splits = stats_list[0].get('splits', [])
+                            # Find the split matching today's venue_id
+                            for split in splits:
+                                if split.get('venue', {}).get('id') == venue_id:
+                                    s = split.get('stat', {})
+                                    pa = s.get('plateAppearances', 0)
+                                    avg = s.get('avg', '.000')
+                                    hr = s.get('homeRuns', 0)
+                                    ops = s.get('ops', '.000')
+                                    break
+                    except Exception as e:
+                        print(f"Skipped stats fetch for {p_name}: {e}")
+
+                    game_info["batters"].append({
+                        "name": p_name,
+                        "team": team['name'],
+                        "pa": pa,
+                        "avg": avg,
+                        "hr": hr,
+                        "ops": ops
+                    })
                         
         park_data.append(game_info)
     return park_data, today
@@ -96,7 +113,7 @@ def build_html(park_data, date_str):
     """
 
     if not park_data:
-        html += "<p>No games scheduled for today or season is in off-season.</p>"
+        html += "<p>No games scheduled for today.</p>"
 
     for game in park_data:
         html += f"""
@@ -108,7 +125,7 @@ def build_html(park_data, date_str):
                     <tr>
                         <th>Player</th>
                         <th>Team</th>
-                        <th>PA</th>
+                        <th>Career PA at Park</th>
                         <th>AVG</th>
                         <th>HR</th>
                         <th>OPS</th>
@@ -116,23 +133,27 @@ def build_html(park_data, date_str):
                 </thead>
                 <tbody>
         """
-        for b in game['batters']:
-            html += f"""
-                <tr>
-                    <td><strong>{b['name']}</strong></td>
-                    <td>{b['team']}</td>
-                    <td>{b['pa']}</td>
-                    <td>{b['avg']}</td>
-                    <td>{b['hr']}</td>
-                    <td>{b['ops']}</td>
-                </tr>
-            """
+        if not game['batters']:
+            html += "<tr><td colspan='6'>No active hitters found for this matchup.</td></tr>"
+        else:
+            for b in game['batters']:
+                html += f"""
+                    <tr>
+                        <td><strong>{b['name']}</strong></td>
+                        <td>{b['team']}</td>
+                        <td>{b['pa']}</td>
+                        <td>{b['avg']}</td>
+                        <td>{b['hr']}</td>
+                        <td>{b['ops']}</td>
+                    </tr>
+                """
         html += "</tbody></table></div>"
 
     html += "</body></html>"
     
     with open("index.html", "w") as f:
         f.write(html)
+    print("\nSuccessfully updated index.html!")
 
 if __name__ == "__main__":
     data, date_str = fetch_mlb_data()
