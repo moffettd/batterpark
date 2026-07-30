@@ -15,7 +15,6 @@ TEAM_ABBREVIATIONS = {
 
 def fetch_mlb_data():
     today = datetime.now().strftime('%Y-%m-%d')
-    # 3-year window (1095 days)
     start_dt = (datetime.now() - timedelta(days=1095)).strftime('%Y-%m-%d')
     end_dt = today
     
@@ -43,7 +42,6 @@ def fetch_mlb_data():
             }
         }]
 
-    # FETCH STATCAST DATA ONCE FOR ALL GAMES
     print(f"Pulling bulk 3-Year Statcast dataset ({start_dt} to {end_dt})...")
     try:
         full_df = statcast(start_dt=start_dt, end_dt=end_dt)
@@ -69,7 +67,6 @@ def fetch_mlb_data():
             "batters": []
         }
 
-        # Gather active hitters strictly for ONLY the two playing teams
         player_map = {}
         for team in [away_team, home_team]:
             roster_url = f"https://statsapi.mlb.com/api/v1/teams/{team['id']}/roster?rosterType=active"
@@ -85,13 +82,11 @@ def fetch_mlb_data():
             except Exception as e:
                 print(f"Could not fetch roster for {team['name']}: {e}")
 
-        # Filter the master dataframe for this specific stadium
         if full_df is not None and not full_df.empty:
             df = full_df[full_df['home_team'] == home_code]
         else:
             df = pd.DataFrame()
 
-        # Build stats for batters on these two teams
         for p_id, p_info in player_map.items():
             pa, avg, hr, ops, note = 0, ".000", 0, ".000", "0 PA at Park (3-Yr)"
             
@@ -148,13 +143,67 @@ def build_html(park_data, date_str):
         <title>MLB Batter Ballpark Stats - {date_str}</title>
         <style>
             body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 2rem; background: #f4f6f8; color: #333; }}
-            .card {{ background: white; padding: 1.5rem; margin-bottom: 2rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
             h1 {{ margin-bottom: 0.5rem; }}
             .sub {{ color: #666; margin-bottom: 2rem; }}
-            table {{ width: 100%; border-collapse: collapse; margin-top: 1rem; }}
-            th, td {{ padding: 10px 12px; text-align: left; border-bottom: 1px solid #ddd; }}
-            th {{ background-color: #003366; color: white; }}
+            
+            /* Collapsible Card Styling */
+            details.card {{
+                background: white;
+                border-radius: 8px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                margin-bottom: 1.5rem;
+                overflow: hidden;
+            }}
+            
+            summary {{
+                padding: 1.25rem 1.5rem;
+                background: #ffffff;
+                cursor: pointer;
+                user-select: none;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                border-bottom: 1px solid #eee;
+                transition: background 0.2s ease;
+            }}
+            summary:hover {{
+                background: #f8f9fa;
+            }}
+            summary h2 {{ margin: 0; font-size: 1.25rem; color: #003366; }}
+            summary h3 {{ margin: 0; font-size: 1rem; color: #555; font-weight: normal; }}
+            summary .toggle-icon {{
+                font-size: 0.9rem;
+                color: #888;
+                font-weight: bold;
+            }}
+
+            /* Table & Sticky Header Styling */
+            .table-container {{
+                max-height: 500px;
+                overflow-y: auto;
+                padding: 0 1.5rem 1.5rem 1.5rem;
+            }}
+            table {{
+                width: 100%;
+                border-collapse: collapse;
+                margin-top: 1rem;
+            }}
+            th, td {{
+                padding: 10px 12px;
+                text-align: left;
+                border-bottom: 1px solid #ddd;
+            }}
+            th {{
+                background-color: #003366;
+                color: white;
+                position: sticky;
+                top: 0;
+                z-index: 10;
+                box-shadow: 0 1px 0 #003366;
+            }}
             tr:hover {{ background-color: #f8f9fa; }}
+            
+            /* Stat Badges */
             .tag-park {{ font-size: 0.85em; color: #155724; background: #d4edda; padding: 3px 8px; border-radius: 4px; font-weight: 600; }}
             .tag-zero {{ font-size: 0.85em; color: #721c24; background: #f8d7da; padding: 3px 8px; border-radius: 4px; }}
         </style>
@@ -166,22 +215,28 @@ def build_html(park_data, date_str):
 
     for game in park_data:
         html += f"""
-        <div class="card">
-            <h2>{game['venue']}</h2>
-            <h3>{game['matchup']}</h3>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Player</th>
-                        <th>Team</th>
-                        <th>PA at Park (3-Yr)</th>
-                        <th>AVG</th>
-                        <th>HR</th>
-                        <th>OPS</th>
-                        <th>Stat Source</th>
-                    </tr>
-                </thead>
-                <tbody>
+        <details class="card" open>
+            <summary>
+                <div>
+                    <h2>{game['venue']}</h2>
+                    <h3>{game['matchup']}</h3>
+                </div>
+                <span class="toggle-icon">▼ Toggle Game</span>
+            </summary>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Player</th>
+                            <th>Team</th>
+                            <th>PA at Park (3-Yr)</th>
+                            <th>AVG</th>
+                            <th>HR</th>
+                            <th>OPS</th>
+                            <th>Stat Source</th>
+                        </tr>
+                    </thead>
+                    <tbody>
         """
         if not game['batters']:
             html += "<tr><td colspan='7'>No active hitters found for this matchup.</td></tr>"
@@ -200,13 +255,13 @@ def build_html(park_data, date_str):
                         <td><span class="{tag_class}">{b['note']}</span></td>
                     </tr>
                 """
-        html += "</tbody></table></div>"
+        html += "</tbody></table></div></details>"
 
     html += "</body></html>"
     
     with open("index.html", "w") as f:
         f.write(html)
-    print("\nSuccessfully updated index.html!")
+    print("\nSuccessfully updated index.html with sticky headers and collapsible cards!")
 
 if __name__ == "__main__":
     data, date_str = fetch_mlb_data()
