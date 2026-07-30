@@ -16,10 +16,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-and-deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  # Job 1: Fetch stats and package the site
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -39,18 +37,25 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
-      # Removes previous duplicate deployment artifacts in case of re-runs
-      - name: Delete existing github-pages artifact
-        run: |
-          gh api -X DELETE /repos/${{ github.repository }}/actions/artifacts?name=github-pages || true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Upload Artifact
+        id: upload
         uses: actions/upload-pages-artifact@v3
         with:
           path: '.'
 
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact_id }}
+
+  # Job 2: Deploy to GitHub Pages
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          artifact_id: ${{ needs.build.outputs.artifact_id }}
