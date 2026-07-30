@@ -3,7 +3,6 @@ from datetime import datetime, timedelta
 import pandas as pd
 from pybaseball import statcast, cache
 
-# Enable caching
 cache.enable()
 
 TEAM_ABBREVIATIONS = {
@@ -16,12 +15,10 @@ TEAM_ABBREVIATIONS = {
 
 def fetch_mlb_data():
     today = datetime.now().strftime('%Y-%m-%d')
-    
-    # Use a recent 60-day window for ultra-fast execution, or expand as needed
     start_dt = (datetime.now() - timedelta(days=60)).strftime('%Y-%m-%d')
     end_dt = today
     
-    print(f"Fetching MLB schedule for {today}...")
+    print(f"Fetching schedule for {today}...")
 
     sched_url = f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={today}"
     try:
@@ -31,9 +28,14 @@ def fetch_mlb_data():
         print(f"Error fetching schedule: {e}")
         dates = []
 
-    # Off-season / off-day fallback
-    if not dates or not dates[0].get('games'):
-        print(f"No games found for {today}. Using sample matchup.")
+    # Filter strictly for Regular Season games (gameType 'R')
+    games = []
+    if dates and dates[0].get('games'):
+        games = [g for g in dates[0]['games'] if g.get('gameType') == 'R']
+
+    # Off-season / off-day fallback if no regular season games exist today
+    if not games:
+        print(f"No regular season games on {today}. Displaying sample game.")
         games = [{
             "venue": {"id": 147, "name": "Yankee Stadium"},
             "teams": {
@@ -41,18 +43,17 @@ def fetch_mlb_data():
                 "home": {"team": {"id": 147, "name": "New York Yankees"}}
             }
         }]
-    else:
-        games = dates[0]['games']
 
     park_data = []
 
     for game in games:
-        home_team_id = game['teams']['home']['team']['id']
-        home_code = TEAM_ABBREVIATIONS.get(home_team_id, "NYY")
-        
-        venue_name = game.get('venue', {}).get('name', 'Ballpark')
-        away_team = game['teams']['away']['team']
         home_team = game['teams']['home']['team']
+        away_team = game['teams']['away']['team']
+        home_team_id = home_team['id']
+        away_team_id = away_team['id']
+        
+        home_code = TEAM_ABBREVIATIONS.get(home_team_id, "NYY")
+        venue_name = game.get('venue', {}).get('name', 'Ballpark')
         
         print(f"\nProcessing Game: {away_team['name']} @ {home_team['name']} at {venue_name} (Code: {home_code})")
         
@@ -62,8 +63,8 @@ def fetch_mlb_data():
             "batters": []
         }
 
-        # 1. Gather all active hitter IDs for this game
-        player_map = {} # Maps batter_id -> {name, team}
+        # Gather active hitters strictly for ONLY the two playing teams
+        player_map = {}
         for team in [away_team, home_team]:
             roster_url = f"https://statsapi.mlb.com/api/v1/teams/{team['id']}/roster?rosterType=active"
             try:
@@ -78,21 +79,18 @@ def fetch_mlb_data():
             except Exception as e:
                 print(f"Could not fetch roster for {team['name']}: {e}")
 
-        # 2. Fetch Statcast data for this stadium in ONE bulk request
-        print(f"Pulling bulk Statcast data for {home_code}...")
+        # Fetch bulk Statcast data for this host stadium
         try:
-            # statcast() allows fetching pitch data in bulk by date range
             df = statcast(start_dt=start_dt, end_dt=end_dt)
             if df is not None and not df.empty:
-                # Filter for this home venue
                 df = df[df['home_team'] == home_code]
             else:
                 df = pd.DataFrame()
         except Exception as e:
-            print(f"Statcast bulk fetch notice: {e}")
+            print(f"Statcast notice: {e}")
             df = pd.DataFrame()
 
-        # 3. Calculate metrics for each player in memory
+        # Build stats for batters on these two teams
         for p_id, p_info in player_map.items():
             pa, avg, hr, ops, note = 0, ".000", 0, ".000", "0 PA at Park"
             
@@ -201,7 +199,7 @@ def build_html(park_data, date_str):
                         <td><span class="{tag_class}">{b['note']}</span></td>
                     </tr>
                 """
-        html += "</tbody>mtable></div>"
+        html += "</tbody></table></div>"
 
     html += "</body></html>"
     
