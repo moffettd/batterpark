@@ -1,6 +1,5 @@
 import requests
 from datetime import datetime
-import json
 
 def fetch_mlb_data():
     today = datetime.now().strftime('%Y-%m-%d')
@@ -9,7 +8,12 @@ def fetch_mlb_data():
     sched_url = f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={today}"
     sched_res = requests.get(sched_url).json()
     
-    games = sched_res.get('dates', [{}])[0].get('games', [])
+    dates = sched_res.get('dates', [])
+    if not dates or not dates[0].get('games'):
+        print("No games scheduled for today.")
+        return [], today
+
+    games = dates[0]['games']
     park_data = []
 
     for game in games:
@@ -30,32 +34,44 @@ def fetch_mlb_data():
             roster_res = requests.get(roster_url).json()
             
             for player in roster_res.get('roster', []):
-                # Filter for position players (Hitters)
-                if player['position']['code'] != '1': # 1 = Pitcher
+                pos = player.get('position', {}).get('abbreviation', '')
+                
+                # Exclude Pitchers ('P')
+                if pos != 'P':
                     p_id = player['person']['id']
                     p_name = player['person']['fullName']
                     
-                    # 2. Fetch career stats split by this specific venue
-                    stats_url = f"https://statsapi.mlb.com/api/v1/people/{p_id}/stats?stats=statSplits&group=hitting&sitCodes=v{venue_id}"
+                    # Correct Venue Query using 'venueId' parameter
+                    stats_url = f"https://statsapi.mlb.com/api/v1/people/{p_id}/stats?stats=statSplits&group=hitting&gameType=R&venueId={venue_id}"
                     stats_res = requests.get(stats_url).json()
                     
                     splits = stats_res.get('stats', [{}])[0].get('splits', [])
+                    
                     if splits:
-                        s = splits[0]['stat']
+                        s = splits[0].get('stat', {})
                         game_info["batters"].append({
                             "name": p_name,
                             "team": team['name'],
+                            "pa": s.get('plateAppearances', 0),
                             "avg": s.get('avg', '.000'),
                             "hr": s.get('homeRuns', 0),
-                            "ops": s.get('ops', '.000'),
-                            "pa": s.get('plateAppearances', 0)
+                            "ops": s.get('ops', '.000')
+                        })
+                    else:
+                        # Fallback if player has no career stats at this ballpark yet
+                        game_info["batters"].append({
+                            "name": p_name,
+                            "team": team['name'],
+                            "pa": 0,
+                            "avg": ".000",
+                            "hr": 0,
+                            "ops": ".000"
                         })
                         
         park_data.append(game_info)
     return park_data, today
 
 def build_html(park_data, date_str):
-    # Basic CSS/HTML styling
     html = f"""
     <!DOCTYPE html>
     <html lang="en">
@@ -80,7 +96,7 @@ def build_html(park_data, date_str):
     """
 
     if not park_data:
-        html += "<p>No games scheduled for today.</p>"
+        html += "<p>No games scheduled for today or season is in off-season.</p>"
 
     for game in park_data:
         html += f"""
