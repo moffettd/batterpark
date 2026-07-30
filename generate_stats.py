@@ -15,11 +15,11 @@ TEAM_ABBREVIATIONS = {
 
 def fetch_mlb_data():
     today = datetime.now().strftime('%Y-%m-%d')
-    # 3-year window (1095 days) ensures deep career ballpark sample sizes
+    # 3-year window (1095 days)
     start_dt = (datetime.now() - timedelta(days=1095)).strftime('%Y-%m-%d')
     end_dt = today
     
-    print(f"Fetching schedule for {today} (Statcast 3-Year Window: {start_dt} to {end_dt})...")
+    print(f"Fetching schedule for {today}...")
 
     sched_url = f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={today}"
     try:
@@ -43,6 +43,14 @@ def fetch_mlb_data():
             }
         }]
 
+    # FETCH STATCAST DATA ONCE FOR ALL GAMES
+    print(f"Pulling bulk 3-Year Statcast dataset ({start_dt} to {end_dt})...")
+    try:
+        full_df = statcast(start_dt=start_dt, end_dt=end_dt)
+    except Exception as e:
+        print(f"Statcast bulk fetch error: {e}")
+        full_df = pd.DataFrame()
+
     park_data = []
 
     for game in games:
@@ -61,6 +69,7 @@ def fetch_mlb_data():
             "batters": []
         }
 
+        # Gather active hitters strictly for ONLY the two playing teams
         player_map = {}
         for team in [away_team, home_team]:
             roster_url = f"https://statsapi.mlb.com/api/v1/teams/{team['id']}/roster?rosterType=active"
@@ -76,16 +85,13 @@ def fetch_mlb_data():
             except Exception as e:
                 print(f"Could not fetch roster for {team['name']}: {e}")
 
-        try:
-            df = statcast(start_dt=start_dt, end_dt=end_dt)
-            if df is not None and not df.empty:
-                df = df[df['home_team'] == home_code]
-            else:
-                df = pd.DataFrame()
-        except Exception as e:
-            print(f"Statcast notice: {e}")
+        # Filter the master dataframe for this specific stadium
+        if full_df is not None and not full_df.empty:
+            df = full_df[full_df['home_team'] == home_code]
+        else:
             df = pd.DataFrame()
 
+        # Build stats for batters on these two teams
         for p_id, p_info in player_map.items():
             pa, avg, hr, ops, note = 0, ".000", 0, ".000", "0 PA at Park (3-Yr)"
             
